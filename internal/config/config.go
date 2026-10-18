@@ -1,0 +1,200 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type PostgresConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	Database string
+	SSLMode  string
+}
+
+type KafkaConfig struct {
+	Brokers          []string
+	RatesTopic       string
+	PriceAlertsTopic string
+	WriterGroup      string
+	BotGroup         string
+}
+
+type FetcherConfig struct {
+	CoinGeckoBaseURL string
+	Symbols          []string
+	Currencies       []string
+	Interval         time.Duration
+	Prefetch         time.Duration
+	HTTPAddr         string
+	Kafka            KafkaConfig
+}
+
+type WriterConfig struct {
+	Postgres                 PostgresConfig
+	Kafka                    KafkaConfig
+	MinAlertThresholdPercent float64
+	HTTPAddr                 string
+}
+
+type APIConfig struct {
+	Postgres PostgresConfig
+	HTTPAddr string
+}
+
+type BotConfig struct {
+	Postgres      PostgresConfig
+	Kafka         KafkaConfig
+	APIBaseURL    string
+	TelegramToken string
+	HTTPAddr      string
+	AlertCooldown time.Duration
+}
+
+func requiredEnv(name string) (string, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return "", fmt.Errorf("Пустое значение %s", name)
+	}
+	return value, nil
+}
+
+func requiredInt(name string) (int, error) {
+	value, err := requiredEnv(name)
+	if err != nil {
+		return 0, err
+	}
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("Не вышло преобразовать строку %q из %s в число, ошибка: %w", value, name, err)
+	}
+	return number, nil
+}
+
+func requiredDuration(name string) (time.Duration, error) {
+	value, err := requiredEnv(name)
+	if err != nil {
+		return 0, err
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("Не вышло преобразовать строку %q из %s в продолжительность времени, ошибка: %w", value, name, err)
+	}
+	return duration, nil
+}
+
+func requiredFloat(name string) (float64, error) {
+	value, err := requiredEnv(name)
+	if err != nil {
+		return 0, err
+	}
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("Не вышло преобразовать строку %q из %s в дробное число, ошибка: %w", value, name, err)
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return 0, fmt.Errorf("Не вышло преобразовать строку %q из %s в дробное число, значение должно быть конечным числом", value, name)
+	}
+	return number, nil
+}
+
+func requiredList(name string) ([]string, error) {
+	value, err := requiredEnv(name)
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(value, ",")
+
+	var result []string
+	for i, part := range parts {
+		item := strings.TrimSpace(part)
+		if item == "" {
+			return nil, fmt.Errorf("Значение №%d строки %q из %s пустое", i+1, value, name)
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func LoadPostgresConfig() (PostgresConfig, error) {
+	var problems []error
+	host, hostErr := requiredEnv("POSTGRES_HOST")
+	if hostErr != nil {
+		problems = append(problems, hostErr)
+	}
+	port, portErr := requiredInt("POSTGRES_PORT")
+	if portErr != nil {
+		problems = append(problems, portErr)
+	} else if port > 65535 || port < 1 {
+		problems = append(problems, fmt.Errorf("Порт %d не соответствует стандарту", port))
+	}
+	user, userErr := requiredEnv("POSTGRES_USER")
+	if userErr != nil {
+		problems = append(problems, userErr)
+	}
+	password, passwordErr := requiredEnv("POSTGRES_PASSWORD")
+	if passwordErr != nil {
+		problems = append(problems, passwordErr)
+	}
+	database, databaseErr := requiredEnv("POSTGRES_DB")
+	if databaseErr != nil {
+		problems = append(problems, databaseErr)
+	}
+	sslMode := strings.TrimSpace(os.Getenv("POSTGRES_SSLMODE"))
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+	if len(problems) > 0 {
+		return PostgresConfig{}, errors.Join(problems...)
+	}
+	return PostgresConfig{
+		Host:     host,
+		Port:     port,
+		User:     user,
+		Password: password,
+		Database: database,
+		SSLMode:  sslMode,
+	}, nil
+}
+
+func LoadKafkaConfig() (KafkaConfig, error) {
+	var problems []error
+	brokers, brokersErr := requiredList("KAFKA_BROKERS")
+	if brokersErr != nil {
+		problems = append(problems, brokersErr)
+	}
+	ratesTopic, ratesTopicErr := requiredEnv("KAFKA_TOPIC_RATES_RAW")
+	if ratesTopicErr != nil {
+		problems = append(problems, ratesTopicErr)
+	}
+	priceAlertsTopic, priceAlertsTopicErr := requiredEnv("KAFKA_TOPIC_PRICE_ALERTS")
+	if priceAlertsTopicErr != nil {
+		problems = append(problems, priceAlertsTopicErr)
+	}
+	writerGroup, writerGroupErr := requiredEnv("KAFKA_GROUP_WRITER")
+	if writerGroupErr != nil {
+		problems = append(problems, writerGroupErr)
+	}
+	botGroup, botGroupErr := requiredEnv("KAFKA_GROUP_BOT")
+	if botGroupErr != nil {
+		problems = append(problems, botGroupErr)
+	}
+
+	if len(problems) > 0 {
+		return KafkaConfig{}, errors.Join(problems...)
+	}
+	return KafkaConfig{
+		Brokers:          brokers,
+		RatesTopic:       ratesTopic,
+		PriceAlertsTopic: priceAlertsTopic,
+		WriterGroup:      writerGroup,
+		BotGroup:         botGroup,
+	}, nil
+}
