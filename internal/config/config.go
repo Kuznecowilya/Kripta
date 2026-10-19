@@ -123,6 +123,13 @@ func requiredList(name string) ([]string, error) {
 	return result, nil
 }
 
+func upperAll(items []string) []string {
+	for i, item := range items {
+		items[i] = strings.ToUpper(item)
+	}
+	return items
+}
+
 func LoadPostgresConfig() (PostgresConfig, error) {
 	var problems []error
 	host, hostErr := requiredEnv("POSTGRES_HOST")
@@ -196,5 +203,66 @@ func LoadKafkaConfig() (KafkaConfig, error) {
 		PriceAlertsTopic: priceAlertsTopic,
 		WriterGroup:      writerGroup,
 		BotGroup:         botGroup,
+	}, nil
+}
+
+func LoadFetcherConfig() (FetcherConfig, error) {
+	var problems []error
+
+	coinGeckoBaseURL, coinGeckoBaseURLErr := requiredEnv("COINGECKO_BASE_URL")
+	if coinGeckoBaseURLErr != nil {
+		problems = append(problems, coinGeckoBaseURLErr)
+	}
+
+	symbols, symbolsErr := requiredList("CRYPTO_SYMBOLS")
+	if symbolsErr != nil {
+		problems = append(problems, symbolsErr)
+	}
+	symbols = upperAll(symbols)
+
+	currencies, currenciesErr := requiredList("FIAT_CURRENCIES")
+	if currenciesErr != nil {
+		problems = append(problems, currenciesErr)
+	}
+	currencies = upperAll(currencies)
+
+	interval, intervalErr := requiredDuration("FETCH_INTERVAL")
+	if intervalErr != nil {
+		problems = append(problems, intervalErr)
+	} else if interval <= 0 {
+		problems = append(problems, fmt.Errorf("FETCH_INTERVAL должен быть больше нуля, получено %s", interval))
+	}
+
+	prefetch, prefetchErr := requiredDuration("FETCH_PREFETCH")
+	if prefetchErr != nil {
+		problems = append(problems, prefetchErr)
+	} else if prefetch <= 0 {
+		problems = append(problems, fmt.Errorf("FETCH_PREFETCH должен быть больше нуля, получено %s", prefetch))
+	}
+	if intervalErr == nil && prefetchErr == nil && prefetch >= interval {
+		problems = append(problems, fmt.Errorf("FETCH_PREFETCH (%s) должен быть меньше FETCH_INTERVAL (%s)", prefetch, interval))
+	}
+
+	httpAddr, httpAddrErr := requiredEnv("FETCHER_HTTP_ADDR")
+	if httpAddrErr != nil {
+		problems = append(problems, httpAddrErr)
+	}
+
+	kafka, kafkaErr := LoadKafkaConfig()
+	if kafkaErr != nil {
+		problems = append(problems, kafkaErr)
+	}
+
+	if len(problems) > 0 {
+		return FetcherConfig{}, errors.Join(problems...)
+	}
+	return FetcherConfig{
+		CoinGeckoBaseURL: coinGeckoBaseURL,
+		Symbols:          symbols,
+		Currencies:       currencies,
+		Interval:         interval,
+		Prefetch:         prefetch,
+		HTTPAddr:         httpAddr,
+		Kafka:            kafka,
 	}, nil
 }
