@@ -266,3 +266,61 @@ func LoadFetcherConfig() (FetcherConfig, error) {
 		Kafka:            kafka,
 	}, nil
 }
+
+func LoadAPIConfig() (APIConfig, error) {
+	var problems []error
+
+	postgres, postgresErr := LoadPostgresConfig()
+	if postgresErr != nil {
+		problems = append(problems, postgresErr)
+	}
+
+	httpAddr, httpAddrErr := requiredEnv("API_HTTP_ADDR")
+	if httpAddrErr != nil {
+		problems = append(problems, httpAddrErr)
+	}
+
+	if len(problems) > 0 {
+		return APIConfig{}, errors.Join(problems...)
+	}
+	return APIConfig{
+		Postgres: postgres,
+		HTTPAddr: httpAddr,
+	}, nil
+}
+
+func LoadWriterConfig() (WriterConfig, error) {
+	var problems []error
+
+	postgres, postgresErr := LoadPostgresConfig()
+	if postgresErr != nil {
+		problems = append(problems, postgresErr)
+	}
+
+	kafka, kafkaErr := LoadKafkaConfig()
+	if kafkaErr != nil {
+		problems = append(problems, kafkaErr)
+	}
+
+	threshold, thresholdErr := requiredFloat("ALERT_MIN_THRESHOLD_PERCENT")
+	if thresholdErr != nil {
+		problems = append(problems, thresholdErr)
+	} else if threshold <= 0 {
+		problems = append(problems, fmt.Errorf("ALERT_MIN_THRESHOLD_PERCENT должен быть больше нуля, получено %g", threshold))
+	}
+
+	httpAddr, httpAddrErr := requiredEnv("WRITER_HTTP_ADDR")
+	if httpAddrErr != nil {
+		problems = append(problems, httpAddrErr)
+	}
+
+	if len(problems) > 0 {
+		return WriterConfig{}, errors.Join(problems...)
+	}
+	return WriterConfig{
+		Postgres:                 postgres,
+		Kafka:                    kafka,
+		MinAlertThresholdPercent: threshold,
+		HTTPAddr:                 httpAddr,
+	}, nil
+}
