@@ -324,3 +324,51 @@ func LoadWriterConfig() (WriterConfig, error) {
 		HTTPAddr:                 httpAddr,
 	}, nil
 }
+
+func LoadBotConfig() (BotConfig, error) {
+	var problems []error
+
+	postgres, postgresErr := LoadPostgresConfig()
+	if postgresErr != nil {
+		problems = append(problems, postgresErr)
+	}
+
+	kafka, kafkaErr := LoadKafkaConfig()
+	if kafkaErr != nil {
+		problems = append(problems, kafkaErr)
+	}
+
+	apiBaseURL, apiBaseURLErr := requiredEnv("API_BASE_URL")
+	if apiBaseURLErr != nil {
+		problems = append(problems, apiBaseURLErr)
+	}
+
+	telegramToken, telegramTokenErr := requiredEnv("TELEGRAM_BOT_TOKEN")
+	if telegramTokenErr != nil {
+		problems = append(problems, telegramTokenErr)
+	}
+
+	httpAddr, httpAddrErr := requiredEnv("BOT_HTTP_ADDR")
+	if httpAddrErr != nil {
+		problems = append(problems, httpAddrErr)
+	}
+
+	alertCooldown, alertCooldownErr := requiredDuration("ALERT_COOLDOWN")
+	if alertCooldownErr != nil {
+		problems = append(problems, alertCooldownErr)
+	} else if alertCooldown <= 0 {
+		problems = append(problems, fmt.Errorf("ALERT_COOLDOWN должен быть больше нуля, получено %s", alertCooldown))
+	}
+
+	if len(problems) > 0 {
+		return BotConfig{}, errors.Join(problems...)
+	}
+	return BotConfig{
+		Postgres:      postgres,
+		Kafka:         kafka,
+		APIBaseURL:    apiBaseURL,
+		TelegramToken: telegramToken,
+		HTTPAddr:      httpAddr,
+		AlertCooldown: alertCooldown,
+	}, nil
+}
